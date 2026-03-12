@@ -470,6 +470,7 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
     max_tokens = llm_model_config.get("max_tokens", 8192)
 
     check_llm_ts = timer()
+    logging.info(f"[CHAT_PIPELINE] 1. LLM config loaded in {(check_llm_ts - chat_start_ts)*1000:.0f}ms, llm_type={llm_type}, factory={factory}")
 
     langfuse_tracer = None
     trace_context = {}
@@ -491,6 +492,7 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
     if toolcall_session and tools:
         chat_mdl.bind_tools(toolcall_session, tools)
     bind_models_ts = timer()
+    logging.info(f"[CHAT_PIPELINE] 2. Langfuse={( check_langfuse_tracer_ts - check_llm_ts)*1000:.0f}ms, 3. Models loaded={( bind_models_ts - check_langfuse_tracer_ts)*1000:.0f}ms, kbs={len(kbs)}")
 
     retriever = settings.retriever
     questions = [m["content"] for m in messages if m["role"] == "user"][-3:]
@@ -554,13 +556,15 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
         questions[-1] += await keyword_extraction(chat_mdl, questions[-1])
 
     refine_question_ts = timer()
+    logging.info(f"[CHAT_PIPELINE] 4. Question refinement in {(refine_question_ts - bind_models_ts)*1000:.0f}ms, questions={[q[:50] for q in questions]}")
 
     thought = ""
     kbinfos = {"total": 0, "chunks": [], "doc_aggs": []}
     knowledges = []
 
     if attachments is not None and "knowledge" in param_keys:
-        logging.debug("Proceeding with retrieval")
+        logging.info(f"[CHAT_PIPELINE] 5. Starting knowledge retrieval (vector search)...")
+        t_retrieval_start = timer()
         tenant_ids = list(set([kb.tenant_id for kb in kbs]))
         knowledges = []
         if prompt_config.get("reasoning", False) or kwargs.get("reasoning"):
@@ -600,6 +604,8 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
 
         else:
             if embd_mdl:
+                t_vec_start = timer()
+                logging.info(f"[CHAT_PIPELINE] 5a. Vector retrieval starting, kb_ids={dialog.kb_ids}, top_n={dialog.top_n}, top_k={dialog.top_k}")
                 kbinfos = await retriever.retrieval(
                     " ".join(questions),
                     embd_mdl,
@@ -615,10 +621,13 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
                     rerank_mdl=rerank_mdl,
                     rank_feature=label_question(" ".join(questions), kbs),
                 )
+                t_vec_end = timer()
+                logging.info(f"[CHAT_PIPELINE] 5a. Vector retrieval done in {(t_vec_end - t_vec_start)*1000:.0f}ms, chunks={len(kbinfos.get('chunks', []))}, total={kbinfos.get('total', 0)}")
                 if prompt_config.get("toc_enhance"):
                     cks = await retriever.retrieval_by_toc(" ".join(questions), kbinfos["chunks"], tenant_ids, chat_mdl, dialog.top_n)
                     if cks:
                         kbinfos["chunks"] = cks
+                    logging.info(f"[CHAT_PIPELINE] 5b. TOC enhance done in {(timer() - t_vec_end)*1000:.0f}ms")
                 kbinfos["chunks"] = retriever.retrieval_by_children(kbinfos["chunks"], tenant_ids)
             if prompt_config.get("tavily_api_key"):
                 tav = Tavily(prompt_config["tavily_api_key"])
@@ -636,6 +645,9 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
     logging.debug("{}->{}".format(" ".join(questions), "\n->".join(knowledges)))
 
     retrieval_ts = timer()
+    retrieval_elapsed = (retrieval_ts - refine_question_ts) * 1000
+    logging.info(f"[CHAT_PIPELINE] 5. Knowledge retrieval DONE in {retrieval_elapsed:.0f}ms, chunks={len(kbinfos.get('chunks', []))}, knowledges={len(knowledges)}")
+    logging.info(f"[CHAT_PIPELINE] Total pre-LLM time: {(retrieval_ts - chat_start_ts)*1000:.0f}ms (config={( check_llm_ts - chat_start_ts)*1000:.0f}ms + langfuse={(check_langfuse_tracer_ts - check_llm_ts)*1000:.0f}ms + models={(bind_models_ts - check_langfuse_tracer_ts)*1000:.0f}ms + refine={(refine_question_ts - bind_models_ts)*1000:.0f}ms + retrieval={retrieval_elapsed:.0f}ms)")
     if not knowledges and prompt_config.get("empty_response"):
         empty_res = prompt_config["empty_response"]
         yield {"answer": empty_res, "reference": kbinfos, "prompt": "\n\n### Query:\n%s" % " ".join(questions),
@@ -1314,8 +1326,16 @@ def _next_think_delta(state: _ThinkStreamState) -> str:
 
 async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
     state = _ThinkStreamState()
+    t_start = time.time()
+    chunk_in_count = 0
+    yield_count = 0
+    t_first_yield = None
     async for chunk in stream_iter:
+        chunk_in_count += 1
+        if chunk_in_count == 1:
+            logging.info(f"[THINK_STREAM] First chunk from model at {(time.time()-t_start)*1000:.0f}ms, chunk={chunk[:100]!r}")
         if not chunk:
+            logging.debug(f"[THINK_STREAM] Chunk #{chunk_in_count}: empty, skipping")
             continue
         if chunk.startswith(state.last_model_full):
             new_part = chunk[len(state.last_model_full):]
@@ -1324,10 +1344,12 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
             new_part = chunk
             state.last_model_full += chunk
         if not new_part:
+            logging.debug(f"[THINK_STREAM] Chunk #{chunk_in_count}: no new_part after dedup, skipping")
             continue
         state.full_text += new_part
         delta = _next_think_delta(state)
         if not delta:
+            logging.debug(f"[THINK_STREAM] Chunk #{chunk_in_count}: _next_think_delta returned empty")
             continue
         if delta in ("<think>", "</think>"):
             if delta == "<think>" and state.in_think:
@@ -1335,22 +1357,36 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
             if delta == "</think>" and not state.in_think:
                 continue
             if state.buffer:
+                yield_count += 1
                 yield ("text", state.buffer, state)
                 state.buffer = ""
             state.in_think = delta == "<think>"
+            logging.info(f"[THINK_STREAM] Yielding marker={delta!r} at chunk #{chunk_in_count}, {(time.time()-t_start)*1000:.0f}ms")
+            yield_count += 1
             yield ("marker", delta, state)
             continue
         state.buffer += delta
-        if num_tokens_from_string(state.buffer) < min_tokens:
+        buf_tokens = num_tokens_from_string(state.buffer)
+        if buf_tokens < min_tokens:
+            if chunk_in_count <= 5:
+                logging.debug(f"[THINK_STREAM] Buffering: {buf_tokens}/{min_tokens} tokens, buffer={state.buffer[:80]!r}")
             continue
+        yield_count += 1
+        if t_first_yield is None:
+            t_first_yield = time.time()
+            logging.info(f"[THINK_STREAM] First text yield to frontend at {(t_first_yield-t_start)*1000:.0f}ms, buf_tokens={buf_tokens}, text={state.buffer[:80]!r}")
         yield ("text", state.buffer, state)
         state.buffer = ""
 
     if state.buffer:
+        yield_count += 1
+        logging.info(f"[THINK_STREAM] Flushing remaining buffer: {len(state.buffer)} chars, tokens={num_tokens_from_string(state.buffer)}")
         yield ("text", state.buffer, state)
         state.buffer = ""
     if state.endswith_think:
         yield ("marker", "</think>", state)
+
+    logging.info(f"[THINK_STREAM] Done: {chunk_in_count} chunks in, {yield_count} yields out, total_time={(time.time()-t_start)*1000:.0f}ms")
 
 async def async_ask(question, kb_ids, tenant_id, chat_llm_name=None, search_config={}):
     doc_ids = search_config.get("doc_ids", [])

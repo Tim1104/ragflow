@@ -75,7 +75,7 @@ class Base(ABC):
         self.toolcall_sessions = {}
 
     def _get_delay(self):
-        return self.base_delay * random.uniform(10, 150)
+        return self.base_delay * random.uniform(0.5, 1.5)
 
     def _classify_error(self, error):
         error_str = str(error).lower()
@@ -143,9 +143,21 @@ class Base(ABC):
         if stop:
             request_kwargs["stop"] = stop
 
+        t_request_start = time.time()
+        logging.info(f"[LLM_STREAM] Sending request to model={self.model_name}, base_url={getattr(self.async_client, '_base_url', 'N/A')}, gen_conf_keys={list(gen_conf.keys())}")
         response = await self.async_client.chat.completions.create(**request_kwargs)
+        t_response_created = time.time()
+        logging.info(f"[LLM_STREAM] Stream connection established in {(t_response_created - t_request_start)*1000:.0f}ms")
+
+        chunk_count = 0
+        t_first_chunk = None
         async for resp in response:
+            chunk_count += 1
+            if chunk_count == 1:
+                t_first_chunk = time.time()
+                logging.info(f"[LLM_STREAM] First chunk received in {(t_first_chunk - t_request_start)*1000:.0f}ms (TTFT)")
             if not resp.choices:
+                logging.debug(f"[LLM_STREAM] Chunk #{chunk_count}: empty choices, skipping")
                 continue
             if not resp.choices[0].delta.content:
                 resp.choices[0].delta.content = ""
@@ -154,8 +166,11 @@ class Base(ABC):
                 if not reasoning_start:
                     reasoning_start = True
                     ans = "<think>"
+                    logging.info(f"[LLM_STREAM] Reasoning mode started at chunk #{chunk_count}")
                 ans += resp.choices[0].delta.reasoning_content + "</think>"
             else:
+                if reasoning_start:
+                    logging.info(f"[LLM_STREAM] Reasoning mode ended at chunk #{chunk_count}, switching to content")
                 reasoning_start = False
                 ans = resp.choices[0].delta.content
             tol = total_token_count_from_response(resp)
@@ -163,12 +178,19 @@ class Base(ABC):
                 tol = num_tokens_from_string(resp.choices[0].delta.content)
 
             finish_reason = resp.choices[0].finish_reason if hasattr(resp.choices[0], "finish_reason") else ""
+            if finish_reason:
+                logging.info(f"[LLM_STREAM] finish_reason={finish_reason} at chunk #{chunk_count}")
             if finish_reason == "length":
                 if is_chinese(ans):
                     ans += LENGTH_NOTIFICATION_CN
                 else:
                     ans += LENGTH_NOTIFICATION_EN
+            if chunk_count <= 5 or chunk_count % 50 == 0:
+                logging.debug(f"[LLM_STREAM] Chunk #{chunk_count}: ans_len={len(ans)}, content_preview={ans[:80]!r}")
             yield ans, tol
+
+        t_done = time.time()
+        logging.info(f"[LLM_STREAM] Stream completed: {chunk_count} chunks, total_time={(t_done - t_request_start)*1000:.0f}ms")
 
     async def async_chat_streamly(self, system, history, gen_conf: dict = {}, **kwargs):
         if system and history and history[0].get("role") != "system":
@@ -178,6 +200,8 @@ class Base(ABC):
         total_tokens = 0
 
         for attempt in range(self.max_retries + 1):
+            if attempt > 0:
+                logging.warning(f"[LLM_STREAM] Retry attempt {attempt}/{self.max_retries} for model={self.model_name}")
             try:
                 async for delta_ans, tol in self._async_chat_streamly(history, gen_conf, **kwargs):
                     ans = delta_ans
@@ -187,8 +211,10 @@ class Base(ABC):
                 yield total_tokens
                 return
             except Exception as e:
+                logging.error(f"[LLM_STREAM] Exception on attempt {attempt}: {type(e).__name__}: {e}")
                 e = await self._exceptions_async(e, attempt)
                 if e:
+                    logging.error(f"[LLM_STREAM] Giving up after {attempt + 1} attempts: {e}")
                     yield e
                     yield total_tokens
                     return
@@ -1166,7 +1192,7 @@ class LiteLLMBase(ABC):
             self.api_version = json.loads(key).get("api_version", "2024-02-01")
 
     def _get_delay(self):
-        return self.base_delay * random.uniform(10, 150)
+        return self.base_delay * random.uniform(0.5, 1.5)
 
     def _classify_error(self, error):
         error_str = str(error).lower()

@@ -18,6 +18,7 @@ import inspect
 import logging
 import queue
 import re
+import time
 import threading
 from functools import partial
 from typing import Generator
@@ -462,11 +463,19 @@ class LLMBundle(LLM4Tenant):
         if stream_fn:
             chat_partial = partial(stream_fn, system, history, gen_conf)
             use_kwargs = self._clean_param(chat_partial, **kwargs)
+            t_start = time.time()
+            chunk_count = 0
+            logging.info(f"[LLM_BUNDLE_STREAM] Starting stream delta, model={self.model_config.get('llm_name', 'N/A')}")
             try:
                 async for txt in chat_partial(**use_kwargs):
                     if isinstance(txt, int):
                         total_tokens = txt
+                        logging.info(f"[LLM_BUNDLE_STREAM] Stream ended: {chunk_count} chunks yielded, total_tokens={total_tokens}, elapsed={(time.time()-t_start)*1000:.0f}ms")
                         break
+
+                    chunk_count += 1
+                    if chunk_count == 1:
+                        logging.info(f"[LLM_BUNDLE_STREAM] First chunk yielded at {(time.time()-t_start)*1000:.0f}ms, content_len={len(txt)}, preview={txt[:80]!r}")
 
                     if txt.endswith("</think>"):
                         ans = ans[: -len("</think>")]
@@ -477,6 +486,7 @@ class LLMBundle(LLM4Tenant):
                     ans += txt
                     yield txt
             except Exception as e:
+                logging.error(f"[LLM_BUNDLE_STREAM] Exception after {chunk_count} chunks, elapsed={(time.time()-t_start)*1000:.0f}ms: {type(e).__name__}: {e}")
                 if generation:
                     generation.update(output={"error": str(e)})
                     generation.end()
