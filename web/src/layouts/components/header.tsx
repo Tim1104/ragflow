@@ -94,18 +94,6 @@ export function Header({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <Button
-          asLink
-          variant="ghost"
-          size="icon"
-          to="https://ragflow.io/docs/dev/category/user-guides"
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          <LucideCircleHelp className="size-[1em]" />
-        </Button>
-
         <ThemeButton />
 
         {hasNotification && <BellButton />}

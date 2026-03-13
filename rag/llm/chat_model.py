@@ -159,6 +159,12 @@ class Base(ABC):
             if not resp.choices:
                 logging.debug(f"[LLM_STREAM] Chunk #{chunk_count}: empty choices, skipping")
                 continue
+            # Log detailed delta info for first 5 chunks to diagnose content extraction
+            if chunk_count <= 5:
+                delta = resp.choices[0].delta
+                rc = getattr(delta, "reasoning_content", "N/A")
+                me = getattr(delta, "model_extra", None) or {}
+                logging.info(f"[LLM_STREAM] Chunk #{chunk_count} DETAIL: content={delta.content!r}, reasoning_content={rc!r}, model_extra_keys={list(me.keys())}, model_extra={{{', '.join(f'{k}: {str(v)[:100]!r}' for k, v in me.items())}}}")
             if not resp.choices[0].delta.content:
                 resp.choices[0].delta.content = ""
             if kwargs.get("with_reasoning", True) and hasattr(resp.choices[0].delta, "reasoning_content") and resp.choices[0].delta.reasoning_content:
@@ -185,8 +191,8 @@ class Base(ABC):
                     ans += LENGTH_NOTIFICATION_CN
                 else:
                     ans += LENGTH_NOTIFICATION_EN
-            if chunk_count <= 5 or chunk_count % 50 == 0:
-                logging.debug(f"[LLM_STREAM] Chunk #{chunk_count}: ans_len={len(ans)}, content_preview={ans[:80]!r}")
+            if chunk_count <= 5 or chunk_count % 500 == 0:
+                logging.info(f"[LLM_STREAM] Chunk #{chunk_count}: ans_len={len(ans)}, content_preview={ans[:80]!r}")
             yield ans, tol
 
         t_done = time.time()
