@@ -93,7 +93,7 @@ export default {
       nicknamePlaceholder: 'Please input nickname',
       register: 'Create an account',
       continue: 'Continue',
-      title: 'Zhiqi Technology AI Knowledge Base Engine',
+      title: 'Hengqin ONA Regenerative Medicine Co., Ltd.',
       start: "Let's get started",
       description:
         'Sign up for free to explore top RAG technology. Create datasets and AIs to empower your business.',

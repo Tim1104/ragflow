@@ -78,7 +78,7 @@ export default {
       nicknamePlaceholder: '请输入名称',
       register: '创建账户',
       continue: '继续',
-      title: '智启科技AI知识库引擎',
+      title: '横琴奥纳AI知识库引擎',
       start: '立即开始',
       description:
         '免费注册以探索顶级 RAG 技术。 创建知识库和人工智能来增强您的业务',

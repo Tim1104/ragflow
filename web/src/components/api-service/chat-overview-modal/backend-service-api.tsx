@@ -11,7 +11,7 @@ const BackendServiceApi = ({ show }: { show(): void }) => {
     <Card>
       <CardHeader>
         <div className="flex items-center gap-4">
-          <CardTitle>智启AIFlow API</CardTitle>
+          <CardTitle>横琴奥纳AIFlow API</CardTitle>
           <Button onClick={show}>{t('apiKey')}</Button>
         </div>
       </CardHeader>
