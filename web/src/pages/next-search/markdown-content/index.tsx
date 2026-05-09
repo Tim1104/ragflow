@@ -244,19 +244,22 @@ const MarkdownContent = ({
 
   const dir = getDirAttribute(content.replace(citationMarkerReg, ''));
 
-  return (
-    isSearching ? (
-    <div dir={dir} className="text-sm">
-      <div className="flex items-center gap-2 py-1 opacity-70">
-        <span>{t('chat.searching')}</span>
-        <span className="inline-flex gap-1">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-bounce"></span>
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:0.2s]"></span>
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:0.4s]"></span>
-        </span>
+  if (isSearching) {
+    return (
+      <div dir={dir} className="text-sm">
+        <div className="flex items-center gap-2 py-1 opacity-70">
+          <span>{t('chat.searching')}</span>
+          <span className="inline-flex gap-1">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-bounce"></span>
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:0.2s]"></span>
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:0.4s]"></span>
+          </span>
+        </div>
       </div>
-    </div>
-  ) : (
+    );
+  }
+
+  return (
     <div
       dir={dir}
       className="[&>section.think]:pl-[10px] [&>section.think]:text-[#8b8b8b] [&>section.think]:border-l-2 [&>section.think]:border-l-[#d5d3d3] [&>section.think]:mb-[10px] [&>section.think]:text-xs [&>blockquote]:pl-[10px] [&>blockquote]:border-l-4 [&>blockquote]:border-l-[#ccc] text-sm"
