@@ -108,19 +108,13 @@ async def update():
                 data=False,
             )
 
-    if not KnowledgebaseService.accessible4deletion(update_dict["kb_id"], current_user.id):
+    if not KnowledgebaseService.accessible(update_dict["kb_id"], current_user.id):
         return get_json_result(
             data=False,
             message='No authorization.',
             code=RetCode.AUTHENTICATION_ERROR
         )
     try:
-        if not KnowledgebaseService.query(
-                created_by=current_user.id, id=update_dict["kb_id"]):
-            return get_json_result(
-                data=False, message='Only owner of dataset authorized for this operation.',
-                code=RetCode.OPERATING_ERROR)
-
         e, kb = KnowledgebaseService.get_by_id(update_dict["kb_id"])
 
         # Rename folder in FileService
@@ -141,7 +135,7 @@ async def update():
 
         if update_dict["name"].lower() != kb.name.lower() \
                 and len(
-            KnowledgebaseService.query(name=update_dict["name"], tenant_id=current_user.id, status=StatusEnum.VALID.value)) >= 1:
+            KnowledgebaseService.query(name=update_dict["name"], tenant_id=kb.tenant_id, status=StatusEnum.VALID.value)) >= 1:
             return get_data_error_result(
                 message="Duplicated dataset name.")
 
@@ -285,11 +279,10 @@ async def rm():
             code=RetCode.AUTHENTICATION_ERROR
         )
     try:
-        kbs = KnowledgebaseService.query(
-            created_by=uid, id=req["kb_id"])
+        kbs = KnowledgebaseService.query(id=req["kb_id"])
         if not kbs:
             return get_json_result(
-                data=False, message='Only owner of dataset authorized for this operation.',
+                data=False, message='Dataset not found.',
                 code=RetCode.OPERATING_ERROR)
 
         def _rm_sync():

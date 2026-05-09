@@ -54,7 +54,7 @@ class KnowledgebaseService(CommonService):
         """Check if a dataset can be deleted by a specific user.
 
         This method verifies whether a user has permission to delete a dataset
-        by checking if they are the creator of that dataset.
+        by checking if the user is a team member of the tenant that owns the dataset.
 
         Args:
             kb_id (str): The unique identifier of the dataset to check.
@@ -69,14 +69,15 @@ class KnowledgebaseService(CommonService):
             True
 
         Note:
-            - This method only checks creator permissions
+            - This method checks team membership permissions via UserTenant
             - A return value of False can mean either:
                 1. The dataset doesn't exist
-                2. The user is not the creator of the dataset
+                2. The user is not a team member of the tenant that owns the dataset
         """
-        # Check if a dataset can be deleted by a user
+        # Check if a dataset can be deleted by a team member
         docs = cls.model.select(
-            cls.model.id).where(cls.model.id == kb_id, cls.model.created_by == user_id).paginate(0, 1)
+            cls.model.id).join(UserTenant, on=(UserTenant.tenant_id == Knowledgebase.tenant_id)
+                               ).where(cls.model.id == kb_id, UserTenant.user_id == user_id).paginate(0, 1)
         docs = docs.dicts()
         if not docs:
             return False
@@ -420,6 +421,7 @@ class KnowledgebaseService(CommonService):
             "tenant_id": tenant_id,
             "created_by": tenant_id,
             "parser_id": (parser_id or "naive"),
+            "permission": TenantPermission.TEAM.value,
             **kwargs # Includes optional fields such as description, language, permission, avatar, parser_config, etc.
         }
 

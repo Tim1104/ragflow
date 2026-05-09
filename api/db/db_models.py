@@ -1538,6 +1538,11 @@ def migrate_db():
     alter_db_add_column(migrator, "dialog", "tenant_rerank_id", IntegerField(null=True, help_text="id in tenant_llm", index=True))
     alter_db_add_column(migrator, "memory", "tenant_embd_id", IntegerField(null=True, help_text="id in tenant_llm", index=True))
     alter_db_add_column(migrator, "memory", "tenant_llm_id", IntegerField(null=True, help_text="id in tenant_llm", index=True))
+    # Migrate existing knowledgebases permission from 'me' to 'team' for team sharing
+    try:
+        Knowledgebase.update(permission="team").where(Knowledgebase.permission == "me").execute()
+    except Exception:
+        pass
     logging.disable(logging.NOTSET)
     # this is after re-enabling logging to allow logging changed user emails
     migrate_add_unique_email(migrator)
