@@ -155,8 +155,6 @@ function MessageItem({
       >
         {item.data ? (
           children
-        ) : sendLoading && isEmpty(messageContent) ? (
-          <>{!isShare && 'running...'}</>
         ) : (
           <MarkdownContent
             loading={loading}
@@ -171,13 +169,11 @@ function MessageItem({
     children,
     clickDocumentButton,
     isAssistant,
-    isShare,
     item.data,
     loading,
     messageContent,
     pdfDownloadInfo,
     reference,
-    sendLoading,
     theme,
   ]);
 

@@ -153,7 +153,7 @@ const MessageItem = ({
               />
             )}
             {/* Show message content if there's any text besides the download */}
-            {messageContent && (
+            {(messageContent || loading) && (
               <div
                 className={cn(
                   isAssistant

@@ -33,6 +33,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { useFetchDocumentThumbnailsByIds } from '@/hooks/use-document-request';
+import { useTypewriter } from '@/hooks/use-typewriter';
 import classNames from 'classnames';
 import { omit } from 'lodash';
 import { pipe } from 'lodash/fp';
@@ -69,19 +70,24 @@ const MarkdownContent = ({
 
   const isSearching = loading && content === '';
 
+  // Typewriter effect: progressively reveal content during loading
+  const displayedContent = useTypewriter(content, loading);
+
   const contentWithCursor = useMemo(() => {
     if (isSearching) {
       return '';
     }
 
-    let text = DOMPurify.sanitize(content, {
+    const textToRender = loading ? displayedContent : content;
+
+    let text = DOMPurify.sanitize(textToRender, {
       ADD_TAGS: ['think', 'section'],
       ADD_ATTR: ['class'],
     });
 
     const nextText = replaceTextByOldReg(text);
     return pipe(replaceThinkToSection, preprocessLaTeX)(nextText);
-  }, [content, isSearching]);
+  }, [content, displayedContent, isSearching, loading]);
 
   useEffect(() => {
     const docAggs = reference?.doc_aggs;

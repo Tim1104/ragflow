@@ -27,6 +27,7 @@ import { citationMarkerReg } from '@/utils/citation-utils';
 import { getDirAttribute } from '@/utils/text-direction';
 
 import { useFetchDocumentThumbnailsByIds } from '@/hooks/use-document-request';
+import { useTypewriter } from '@/hooks/use-typewriter';
 import { cn } from '@/lib/utils';
 import classNames from 'classnames';
 import { omit } from 'lodash';
@@ -59,19 +60,24 @@ function MarkdownContent({
 
   const isSearching = loading && content === '';
 
+  // Typewriter effect: progressively reveal content during loading
+  const displayedContent = useTypewriter(content, loading);
+
   const contentWithCursor = useMemo(() => {
     if (isSearching) {
       return '';
     }
 
-    let text = DOMPurify.sanitize(content, {
+    const textToRender = loading ? displayedContent : content;
+
+    let text = DOMPurify.sanitize(textToRender, {
       ADD_TAGS: ['think', 'section'],
       ADD_ATTR: ['class'],
     });
 
     const nextText = replaceTextByOldReg(text);
     return pipe(replaceThinkToSection, preprocessLaTeX)(nextText);
-  }, [content, isSearching]);
+  }, [content, displayedContent, isSearching, loading]);
 
   useEffect(() => {
     const docAggs = reference?.doc_aggs;
