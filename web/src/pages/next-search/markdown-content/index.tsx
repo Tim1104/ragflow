@@ -56,6 +56,7 @@ const MarkdownContent = ({
   reference,
   clickDocumentButton,
   content,
+  loading = false,
 }: {
   content: string;
   loading: boolean;
@@ -65,18 +66,22 @@ const MarkdownContent = ({
   const { t } = useTranslation();
   const { setDocumentIds, data: fileThumbnails } =
     useFetchDocumentThumbnailsByIds();
+
+  const isSearching = loading && content === '';
+
   const contentWithCursor = useMemo(() => {
+    if (isSearching) {
+      return '';
+    }
+
     let text = DOMPurify.sanitize(content, {
       ADD_TAGS: ['think', 'section'],
       ADD_ATTR: ['class'],
     });
-    // let text = content;
-    if (text === '') {
-      text = t('chat.searching');
-    }
+
     const nextText = replaceTextByOldReg(text);
     return pipe(replaceThinkToSection, preprocessLaTeX)(nextText);
-  }, [content, t]);
+  }, [content, isSearching]);
 
   useEffect(() => {
     const docAggs = reference?.doc_aggs;
@@ -240,6 +245,18 @@ const MarkdownContent = ({
   const dir = getDirAttribute(content.replace(citationMarkerReg, ''));
 
   return (
+    isSearching ? (
+    <div dir={dir} className="text-sm">
+      <div className="flex items-center gap-2 py-1 opacity-70">
+        <span>{t('chat.searching')}</span>
+        <span className="inline-flex gap-1">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-bounce"></span>
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:0.2s]"></span>
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:0.4s]"></span>
+        </span>
+      </div>
+    </div>
+  ) : (
     <div
       dir={dir}
       className="[&>section.think]:pl-[10px] [&>section.think]:text-[#8b8b8b] [&>section.think]:border-l-2 [&>section.think]:border-l-[#d5d3d3] [&>section.think]:mb-[10px] [&>section.think]:text-xs [&>blockquote]:pl-[10px] [&>blockquote]:border-l-4 [&>blockquote]:border-l-[#ccc] text-sm"
@@ -281,6 +298,9 @@ const MarkdownContent = ({
       >
         {contentWithCursor}
       </Markdown>
+      {loading && (
+        <span className="inline-block w-0.5 h-[1em] bg-current animate-caret-blink align-text-bottom ml-0.5" />
+      )}
     </div>
   );
 };

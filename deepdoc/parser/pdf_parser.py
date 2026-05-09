@@ -582,6 +582,77 @@ class RAGFlowPdfParser:
 
             logging.info(f"Added {added} OCR results from rotated table {table_index}")
 
+    def _recover_lefted_chars(self, lefted_chars, pagenum, mean_height):
+        """Recover unmatched pdfplumber chars into text boxes.
+
+        When OCR detection fails to find text regions (e.g. text on colored
+        backgrounds), the pdfplumber chars have no OCR box to match.  This
+        method groups those orphan chars into lines and builds proper box
+        structures so that the content is not lost.
+
+        Args:
+            lefted_chars: list of pdfplumber char dicts that were not matched
+                to any OCR-detected box.
+            pagenum: 1-based page number.
+            mean_height: median char height for this page (used as line-height
+                threshold).
+
+        Returns:
+            list of recovered box dicts compatible with ``self.boxes``.
+        """
+        if not lefted_chars or mean_height <= 0:
+            return []
+
+        # Sort by vertical position first, then horizontal
+        lefted_chars = sorted(lefted_chars, key=lambda c: (c["top"], c["x0"]))
+
+        # Group chars into lines using Y-proximity
+        line_threshold = mean_height * 0.5
+        lines = []
+        current_line = [lefted_chars[0]]
+        for c in lefted_chars[1:]:
+            if abs(c["top"] - current_line[-1]["top"]) < line_threshold:
+                current_line.append(c)
+            else:
+                lines.append(current_line)
+                current_line = [c]
+        lines.append(current_line)
+
+        recovered = []
+        for line_chars in lines:
+            # Sort chars within line by x0
+            line_chars = sorted(line_chars, key=lambda c: c["x0"])
+
+            # Skip lines with too few meaningful chars
+            text = ""
+            for j, c in enumerate(line_chars):
+                if c["text"] == " " and text:
+                    if re.match(r"[0-9a-zA-Zа-яА-Я,.?;:!%%]", text[-1]):
+                        text += " "
+                else:
+                    text += c["text"]
+
+            text = text.strip()
+            if not text:
+                continue
+
+            box = {
+                "x0": min(c["x0"] for c in line_chars),
+                "x1": max(c["x1"] for c in line_chars),
+                "top": min(c["top"] for c in line_chars),
+                "bottom": max(c["bottom"] for c in line_chars),
+                "text": text,
+                "page_number": pagenum,
+            }
+            recovered.append(box)
+
+        if recovered:
+            logging.info(
+                "Recovered %d text boxes from %d unmatched chars on page %d",
+                len(recovered), len(lefted_chars), pagenum,
+            )
+        return recovered
+
     def __ocr(self, pagenum, img, chars, ZM=3, device_id: int | None = None):
         start = timer()
         bxs = self.ocr.detect(np.array(img), device_id)
@@ -589,7 +660,12 @@ class RAGFlowPdfParser:
 
         start = timer()
         if not bxs:
-            self.boxes.append([])
+            # OCR detected nothing – try to recover from pdfplumber chars
+            recovered = self._recover_lefted_chars(
+                chars, pagenum, self.mean_height[pagenum - 1],
+            )
+            self.lefted_chars.extend(chars)
+            self.boxes.append(recovered)
             return
         bxs = [(line[0], line[1][0]) for line in bxs]
         bxs = Recognizer.sort_Y_firstly(
@@ -601,16 +677,19 @@ class RAGFlowPdfParser:
             self.mean_height[pagenum - 1] / 3,
         )
 
-        # merge chars in the same rect
+        # merge chars in the same rect, track unmatched chars for this page
+        page_lefted_chars = []
         for c in chars:
             ii = Recognizer.find_overlapped(c, bxs)
             if ii is None:
                 self.lefted_chars.append(c)
+                page_lefted_chars.append(c)
                 continue
             ch = c["bottom"] - c["top"]
             bh = bxs[ii]["bottom"] - bxs[ii]["top"]
             if abs(ch - bh) / max(ch, bh) >= 0.7 and c["text"] != " ":
                 self.lefted_chars.append(c)
+                page_lefted_chars.append(c)
                 continue
             bxs[ii]["chars"].append(c)
 
@@ -643,6 +722,22 @@ class RAGFlowPdfParser:
             del boxes_to_reg[i]["box_image"]
         logging.info(f"__ocr recognize {len(bxs)} boxes cost {timer() - start}s")
         bxs = [b for b in bxs if b["text"]]
+
+        # Recover unmatched chars that OCR detection missed
+        if page_lefted_chars:
+            recovered = self._recover_lefted_chars(
+                page_lefted_chars, pagenum, self.mean_height[pagenum - 1],
+            )
+            # Deduplicate: only keep recovered boxes that don't overlap
+            # significantly with existing OCR boxes
+            for rb in recovered:
+                ii = Recognizer.find_overlapped(rb, bxs)
+                if ii is None:
+                    bxs.append(rb)
+            bxs = Recognizer.sort_Y_firstly(
+                bxs, self.mean_height[pagenum - 1] / 3,
+            )
+
         if self.mean_height[pagenum - 1] == 0:
             self.mean_height[pagenum - 1] = np.median([b["bottom"] - b["top"] for b in bxs])
         self.boxes.append(bxs)

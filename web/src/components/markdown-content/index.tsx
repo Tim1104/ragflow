@@ -45,6 +45,7 @@ const MarkdownContent = ({
   reference,
   clickDocumentButton,
   content,
+  loading = false,
 }: {
   content: string;
   loading: boolean;
@@ -54,19 +55,22 @@ const MarkdownContent = ({
   const { t } = useTranslation();
   const { setDocumentIds, data: fileThumbnails } =
     useFetchDocumentThumbnailsByIds();
+
+  const isSearching = loading && content === '';
+
   const contentWithCursor = useMemo(() => {
+    if (isSearching) {
+      return '';
+    }
+
     let text = DOMPurify.sanitize(content, {
       ADD_TAGS: ['think', 'section'],
       ADD_ATTR: ['class'],
     });
 
-    // let text = content;
-    if (text === '') {
-      text = t('chat.searching');
-    }
     const nextText = replaceTextByOldReg(text);
     return pipe(replaceThinkToSection, preprocessLaTeX)(nextText);
-  }, [content, t]);
+  }, [content, isSearching]);
 
   useEffect(() => {
     const docAggs = reference?.doc_aggs;
@@ -235,6 +239,21 @@ const MarkdownContent = ({
 
   const dir = getDirAttribute(content.replace(citationMarkerReg, ''));
 
+  if (isSearching) {
+    return (
+      <div dir={dir} className={styles.markdownContentWrapper}>
+        <div className={styles.searchingWrapper}>
+          <span>{t('chat.searching')}</span>
+          <span className={styles.searchingDots}>
+            <span></span>
+            <span></span>
+            <span></span>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div dir={dir} className={styles.markdownContentWrapper}>
       <Markdown
@@ -274,6 +293,7 @@ const MarkdownContent = ({
       >
         {contentWithCursor}
       </Markdown>
+      {loading && <span className={styles.cursor} />}
     </div>
   );
 };
