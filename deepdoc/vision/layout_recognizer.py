@@ -117,6 +117,9 @@ class LayoutRecognizer(Recognizer):
                     keep_feats = [
                         lts_[ii]["type"] == "footer" and bxs[i]["bottom"] < image_list[pn].size[1] * 0.9 / scale_factor,
                         lts_[ii]["type"] == "header" and bxs[i]["top"] > image_list[pn].size[1] * 0.1 / scale_factor,
+                        # Keep footer/header with substantial text (e.g. company
+                        # info, addresses) – let garbag_set handle deduplication.
+                        lts_[ii]["type"] in ("footer", "header") and len(bxs[i].get("text", "").strip()) > 10,
                     ]
                     if drop and lts_[ii]["type"] in self.garbage_layouts and not any(keep_feats):
                         if lts_[ii]["type"] not in garbages:
@@ -420,6 +423,9 @@ class AscendLayoutRecognizer(Recognizer):
                     keep_feats = [
                         lts_of_ty[ii]["type"] == "footer" and bxs[i]["bottom"] < image_list[pn].shape[0] * 0.9 / scale_factor,
                         lts_of_ty[ii]["type"] == "header" and bxs[i]["top"] > image_list[pn].shape[0] * 0.1 / scale_factor,
+                        # Keep footer/header with substantial text (e.g. company
+                        # info, addresses) – let garbag_set handle deduplication.
+                        lts_of_ty[ii]["type"] in ("footer", "header") and len(bxs[i].get("text", "").strip()) > 10,
                     ]
                     if drop and lts_of_ty[ii]["type"] in self.garbage_layouts and not any(keep_feats):
                         garbages.setdefault(lts_of_ty[ii]["type"], []).append(bxs[i].get("text", ""))
